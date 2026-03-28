@@ -29,6 +29,64 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('entity-name').textContent = name;
     document.title = `StatusSphere | ${name}`;
 
+    const impactedServices = entityMeta?.services?.filter(s => s.vulnerability) || [];
+    if (impactedServices.length > 0) {
+        const vBox = document.getElementById('vulnerability-box');
+        const vText = document.getElementById('vulnerability-text');
+        vBox.classList.remove('hidden');
+        vText.innerHTML = impactedServices.map(s => 
+            `The service used by <strong>${name}</strong> (${s.name}) is likely impacted by the vulnerability <strong>${s.vulnerability}</strong>`
+        ).join('<br/>');
+    }
+
+    // Initialize tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.target).classList.add('active');
+        });
+    });
+
+    // Populate Third-Party Services
+    const servicesList = document.getElementById('services-list');
+    if (entityMeta?.services && entityMeta.services.length > 0) {
+        servicesList.innerHTML = entityMeta.services.map(s => {
+            let isVuln = '';
+            let statusHtml = '';
+            if (s.statusCode === 'vuln_noted') {
+                isVuln = 'has-vuln';
+                statusHtml = `<span class="status-lbl lbl-red">&lt;Vulnerabilities noted&gt;</span>`;
+            } else if (s.statusCode === 'unknown') {
+                statusHtml = `<span class="status-lbl lbl-yellow">&lt;Unknown&gt;</span>`;
+            } else {
+                statusHtml = `<span class="status-lbl lbl-green">&lt;No vulnerabilities noted&gt;</span>`;
+            }
+
+            const vulnText = s.vulnerability ? `<div class="vuln-alert">
+                <div style="display:flex; flex-direction:column; gap:0.25rem;">
+                    <span>Impacted by: <strong>${s.vulnerability}</strong></span>
+                    ${s.vulnerabilityDate ? `<span class="vuln-date">Flagged: ${s.vulnerabilityDate} (New)</span>` : ''}
+                </div>
+            </div>` : '';
+            return `
+                <div class="service-item ${isVuln}">
+                    <div class="service-header-row">
+                        <div class="service-name-col">
+                            <strong>${s.name}</strong>
+                            ${statusHtml}
+                        </div>
+                        <span class="service-type">${s.type}</span>
+                    </div>
+                    ${vulnText}
+                </div>
+            `;
+        }).join('');
+    } else {
+        servicesList.innerHTML = '<p class="no-services-msg">No integrated services recorded for this entity.</p>';
+    }
+
     initChart();
     await loadHistory();
     await fetchStatus();

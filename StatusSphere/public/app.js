@@ -41,7 +41,22 @@ async function loadConfig() {
 }
 
 function buildTiles() {
+    const tpspMap = {};
+
     for (const [slug, cfg] of Object.entries(entityConfig)) {
+        if (cfg.category === 'bank' && cfg.services) {
+            cfg.services.forEach(svc => {
+                const standardizedName = svc.name.trim();
+                if (!tpspMap[standardizedName]) {
+                    tpspMap[standardizedName] = { count: 0, hasVuln: false };
+                }
+                tpspMap[standardizedName].count++;
+                if (svc.statusCode === 'vuln_noted') {
+                    tpspMap[standardizedName].hasVuln = true;
+                }
+            });
+        }
+
         const gridId = GRID_MAP[cfg.category];
         const grid = document.getElementById(gridId);
         if (!grid) continue;
@@ -49,14 +64,116 @@ function buildTiles() {
         const tile = document.createElement('a');
         tile.href = `detail.html?entity=${slug}`;
         tile.className = 'status-tile unknown';
+        
+        let tpBoxHtml = '';
+        if (cfg.category === 'bank') {
+            const hasOutage = cfg.services && cfg.services.some(s => s.outage);
+            const hasVulnerability = cfg.services && cfg.services.some(s => s.statusCode === 'vuln_noted');
+            
+            let tpMsg = 'TPSP: no issues';
+            let tpClass = 'tp-ok';
+            if (hasOutage) {
+                tpMsg = 'TPSP: Outage';
+                tpClass = 'tp-outage';
+            } else if (hasVulnerability) {
+                tpMsg = 'TPSP: Cyber';
+                tpClass = 'tp-cyber';
+            }
+            tpBoxHtml = `<div class="tp-status-box ${tpClass}">${tpMsg}</div>`;
+        }
+        
         tile.id = `tile-${slug}`;
         tile.setAttribute('aria-label', `${cfg.name} status`);
         tile.innerHTML = `
+            ${tpBoxHtml}
             <div class="tile-status-dot"></div>
             <span class="tile-name">${cfg.name}</span>
             <span class="tile-label">Loading</span>
         `;
         grid.appendChild(tile);
+    }
+
+    const tpspGrid = document.getElementById('grid-tpsp');
+    if (tpspGrid) {
+        tpspGrid.innerHTML = '';
+
+        const sortedTpsp = Object.keys(tpspMap).map(name => ({
+            name,
+            ...tpspMap[name]
+        })).sort((a, b) => {
+            if (a.hasVuln !== b.hasVuln) return b.hasVuln - a.hasVuln;
+            return b.count - a.count;
+        });
+
+        const top5 = sortedTpsp.slice(0, 5);
+        const remaining = sortedTpsp.slice(5);
+
+        // Render Top 5
+        top5.forEach(item => {
+            const tile = document.createElement('a');
+            tile.href = `tpsp-detail.html?service=${encodeURIComponent(item.name)}`;
+            tile.className = `status-tile ${item.hasVuln ? 'down' : 'up'}`;
+            tile.innerHTML = `
+                <div class="tile-status-dot"></div>
+                <span class="tile-name">${item.name}</span>
+                <span class="tile-label">${item.hasVuln ? 'Vulnerabilities noted' : 'No vulnerabilities noted'}</span>
+                <span class="tpsp-count">Used by ${item.count} FI${item.count > 1 ? 's' : ''}</span>
+            `;
+            tpspGrid.appendChild(tile);
+        });
+
+        // Setup Drawer for Remaining
+        if (remaining.length > 0) {
+            let drawer = document.getElementById('tpsp-drawer');
+            let toggleBtn = document.getElementById('tpsp-drawer-btn');
+            
+            // Create Drawer Container if it doesn't exist natively in index.html
+            if (!drawer) {
+                drawer = document.createElement('div');
+                drawer.id = 'tpsp-drawer';
+                drawer.className = 'tile-grid hidden-drawer';
+                tpspGrid.parentNode.appendChild(drawer);
+            }
+            drawer.innerHTML = '';
+            
+            remaining.forEach(item => {
+                const tile = document.createElement('a');
+                tile.href = `tpsp-detail.html?service=${encodeURIComponent(item.name)}`;
+                tile.className = `status-tile ${item.hasVuln ? 'down' : 'up'}`;
+                tile.innerHTML = `
+                    <div class="tile-status-dot"></div>
+                    <span class="tile-name">${item.name}</span>
+                    <span class="tile-label">${item.hasVuln ? 'Vulnerabilities noted' : 'No vulnerabilities noted'}</span>
+                    <span class="tpsp-count">Used by ${item.count} FI${item.count > 1 ? 's' : ''}</span>
+                `;
+                drawer.appendChild(tile);
+            });
+
+            // Create button if it doesn't exist
+            if (!toggleBtn) {
+                toggleBtn = document.createElement('button');
+                toggleBtn.id = 'tpsp-drawer-btn';
+                toggleBtn.className = 'secondary w-full';
+                toggleBtn.style.marginTop = '1rem';
+                tpspGrid.parentNode.appendChild(toggleBtn);
+                
+                toggleBtn.addEventListener('click', () => {
+                    const isHidden = drawer.classList.contains('hidden-drawer');
+                    if (isHidden) {
+                        drawer.classList.remove('hidden-drawer');
+                        drawer.style.display = 'grid';
+                        drawer.style.marginTop = '1rem';
+                        toggleBtn.textContent = 'Hide Additional TPSPs';
+                    } else {
+                        drawer.classList.add('hidden-drawer');
+                        drawer.style.display = 'none';
+                        toggleBtn.textContent = `Show ${remaining.length} More TPSPs`;
+                    }
+                });
+            }
+            toggleBtn.textContent = `Show ${remaining.length} More TPSPs`;
+            drawer.style.display = 'none';
+        }
     }
 }
 

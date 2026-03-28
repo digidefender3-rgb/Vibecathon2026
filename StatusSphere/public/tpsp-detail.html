@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StatusSphere | TPSP Details</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'></circle><line x1='2' y1='12' x2='22' y2='12'></line><path d='M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'></path></svg>">
+    <!-- Load Vis.js for Network Graph -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        #network-container {
+            width: 100%;
+            height: 500px;
+            background-color: var(--widget-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin-top: 2rem;
+        }
+        .tpsp-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .tpsp-title {
+            font-size: 2.2rem;
+            font-weight: 700;
+        }
+        .main-vuln-box {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            border-radius: 8px;
+            background-color: rgba(239, 68, 68, 0.05);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--danger-color);
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <a href="index.html" class="back-link">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                Back to Dashboard
+            </a>
+            <div class="tpsp-header">
+                <h1 class="tpsp-title" id="tpsp-name-title">Loading...</h1>
+                <div id="tpsp-status-badge"></div>
+            </div>
+            <p id="tpsp-subtitle" style="color: var(--text-secondary);"></p>
+        </header>
+
+        <main>
+            <!-- Vis.js Linkage Map -->
+            <div id="network-container"></div>
+            
+            <!-- Context Box -->
+            <div id="vuln-details-box" class="main-vuln-box">
+                <h3 style="margin-bottom: 0.5rem;">Associated Security Notice</h3>
+                <p id="vuln-text"></p>
+                <p id="vuln-date" style="font-family: monospace; font-size: 0.85rem; margin-top: 0.5rem; opacity: 0.8;"></p>
+            </div>
+        </main>
+    </div>
+
+    <script src="tpsp-detail.js"></script>
+</body>
+</html>

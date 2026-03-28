@@ -3,6 +3,7 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const xml2js = require('xml2js');
+const fs = require('fs');
 const { supabase, storeSnapshot, storeIncident, storeNews } = require('./supabase');
 
 const app = express();
@@ -27,6 +28,24 @@ const ENTITY_CONFIG = {
     cloudflare: { name: 'Cloudflare', category: 'cdn' },
     akamai:     { name: 'Akamai',     category: 'cdn' },
 };
+
+let techStacks = {};
+try {
+    techStacks = JSON.parse(fs.readFileSync('./database/tech_stack.json', 'utf8'));
+} catch (e) {
+    console.warn('[StatusSphere] No tech_stack.json found or invalid format.');
+}
+
+for (const slug of Object.keys(techStacks)) {
+    if (ENTITY_CONFIG[slug]) {
+        ENTITY_CONFIG[slug].services = techStacks[slug].map(s => ({
+            ...s,
+            statusCode: 'unknown',
+            vulnerability: null,
+            outage: false
+        }));
+    }
+}
 
 const ALL_SLUGS = Object.keys(ENTITY_CONFIG);
 const BANK_SLUGS = ALL_SLUGS.filter(s => ENTITY_CONFIG[s].category === 'bank');
@@ -223,6 +242,102 @@ async function fetchNews(query) {
         return [];
     }
 }
+
+function loadSpreadsheets() {
+    const path = require('path');
+    const tpspDir = path.join(__dirname, 'TPSP');
+    let loadedStacks = {};
+    
+    if (fs.existsSync(tpspDir)) {
+        const files = fs.readdirSync(tpspDir).filter(f => f.endsWith('.csv'));
+        for (const file of files) {
+            const slug = file.replace('.csv', '').toLowerCase();
+            const content = fs.readFileSync(path.join(tpspDir, file), 'utf8');
+            const lines = content.split(/\r?\n/).filter(l => l.trim() !== '');
+            const services = [];
+            for (let i = 1; i < lines.length; i++) {
+                // simple CSV split, assuming no quotes are used containing commas
+                const parts = lines[i].split(',');
+                if (parts.length >= 3) {
+                    services.push({
+                        provider: parts[0]?.trim() || '',
+                        name: parts[1]?.trim() || '',
+                        type: parts[2]?.trim() || '',
+                        version: parts[3]?.trim() || ''
+                    });
+                }
+            }
+            if (services.length > 0) loadedStacks[slug] = services;
+        }
+    }
+    return loadedStacks;
+}
+
+async function pollThirdPartyServices() {
+    console.log('[StatusSphere] Polling TPSP spreadsheets for dynamic vulnerabilities...');
+    const techStacks = loadSpreadsheets();
+
+    // Refresh ENTITY_CONFIG memory mapping securely
+    for (const slug of BANK_SLUGS) {
+        if (ENTITY_CONFIG[slug] && techStacks[slug]) {
+             const currentServices = ENTITY_CONFIG[slug].services || [];
+             ENTITY_CONFIG[slug].services = techStacks[slug].map(s => {
+                  const existingSvc = currentServices.find(es => es.name === s.name);
+                  return {
+                      ...s,
+                      statusCode: existingSvc ? existingSvc.statusCode : 'unknown',
+                      vulnerability: existingSvc ? existingSvc.vulnerability : null,
+                      outage: existingSvc ? existingSvc.outage : false
+                  };
+             });
+        }
+    }
+    for (const slug of Object.keys(techStacks)) {
+        if (!ENTITY_CONFIG[slug] || !ENTITY_CONFIG[slug].services) continue;
+        for (let i = 0; i < ENTITY_CONFIG[slug].services.length; i++) {
+            const svc = ENTITY_CONFIG[slug].services[i];
+            try {
+                const query = `${svc.name} ${svc.version ? svc.version : ''} (vulnerability OR CVE OR zero-day)`.trim();
+                const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+                const response = await axios.get(url);
+                const parser = new xml2js.Parser();
+                const result = await parser.parseStringPromise(response.data);
+                const items = result.rss?.channel?.[0]?.item || [];
+                
+                if (items.length > 0) {
+                    const item = items[0];
+                    const pubDateStr = item.pubDate ? item.pubDate[0] : null;
+                    const pubDate = pubDateStr ? new Date(pubDateStr) : new Date();
+                    const ageInDays = (Date.now() - pubDate.getTime()) / (1000 * 60 * 60 * 24);
+
+                    if (ageInDays <= 30) {
+                        ENTITY_CONFIG[slug].services[i].statusCode = 'vuln_noted';
+                        ENTITY_CONFIG[slug].services[i].vulnerability = item.title[0].substring(0, 110) + '...';
+                        ENTITY_CONFIG[slug].services[i].vulnerabilityDate = pubDate.toISOString().split('T')[0];
+                    } else {
+                        ENTITY_CONFIG[slug].services[i].statusCode = 'no_vuln';
+                        ENTITY_CONFIG[slug].services[i].vulnerability = null;
+                        ENTITY_CONFIG[slug].services[i].vulnerabilityDate = null;
+                        console.log(`[StatusSphere] Ignored old vulnerability for ${svc.name} (${ageInDays.toFixed(0)} days old)`);
+                    }
+                } else {
+                    ENTITY_CONFIG[slug].services[i].statusCode = 'no_vuln';
+                    ENTITY_CONFIG[slug].services[i].vulnerability = null;
+                    ENTITY_CONFIG[slug].services[i].vulnerabilityDate = null;
+                }
+            } catch (err) {
+                console.error(`[Vuln Check Error] ${svc.name}:`, err.message);
+                ENTITY_CONFIG[slug].services[i].statusCode = 'unknown';
+            }
+            await new Promise(r => setTimeout(r, 600)); // Gentle delay to not overload Google News RSS
+        }
+    }
+    console.log('[StatusSphere] Third-party scan complete.');
+}
+
+// Start polling processes
+pollThirdPartyServices();
+setInterval(pollThirdPartyServices, NEWS_FETCH_INTERVAL);
 
 async function fetchStatusPage(name, url) {
     try {
